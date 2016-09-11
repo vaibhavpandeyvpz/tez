@@ -27,7 +27,7 @@ class PathCompiler implements PathCompilerInterface
         $params = array();
         $regex = preg_replace_callback(
             self::REGEX_ATTR,
-            function (array $matches) use (&$params) {
+            function(array $matches) use (&$params) {
                 $param = $params[] = $matches[1];
                 return "(?P<{$param}>[\\w-_%]+)";
             },
