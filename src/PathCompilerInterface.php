@@ -9,12 +9,17 @@
  * with this source code in the file LICENSE.md.
  */
 
+namespace Tez;
+
 /**
- * Class RouteTest
+ * Interface PathCompilerInterface
+ * @package Tez
  */
-class RouteTest extends PHPUnit_Framework_TestCase
+interface PathCompilerInterface
 {
-    public function testEverything()
-    {
-    }
+    /**
+     * @param string $path
+     * @return array
+     */
+    public function compile($path);
 }

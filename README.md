@@ -1,5 +1,5 @@
 # vaibhavpandeyvpz/tez
-Simple, framework-agnostic, http router implementation compatible with PHP 5.3+.
+Faster but simpler, framework-agnostic, cache-able http router implementation usable with PHP 5.3+.
 
 [![Build Status](https://img.shields.io/travis/vaibhavpandeyvpz/tez/master.svg?style=flat-square)](https://travis-ci.org/vaibhavpandeyvpz/tez)
 
@@ -25,48 +25,38 @@ Then you can define your routes & dispatching mechanism in ```index.php``` simil
 ```php
 <?php
 
-/**
- * @desc Create a new router instance
- */
-$router = new Tez\Router();
+$matcher = Tez\CreateMatcher(function (Tez\Router $router) {
+    $router->map(null, '/home', 'dummy_handler');
+    $router->post('/home', 'dummy_handler');
+    /** @desc You can extract attributes from uri using {...} syntax */
+    $router->get('/hello/{name}', 'dummy_handler');
+    $router->group('/hi', function (Tez\Router $router) {
+        $router->get('/fi', 'dummy_handler');
+        $router->get('/{name}', 'dummy_handler');
+    });
+}, /** [Optional] To use caching */ __DIR__ . '/cache.php');
 
-/**
- * @desc Add some routes. You can extract attributes from uri
- *      using {...} syntax
- */
-$router->map(['GET', 'POST'], '/', function () {
-    return 'GET /';
-});
+/** @desc Match the URI against the $_SERVER super-global */
+$result = $matcher->match(strtoupper($_SERVER['REQUEST_METHOD']), $_SERVER['REQUEST_URI']);
 
-$router->post('/login', function () {
-    return 'GET /login';
-});
-
-$router->post('/login', function () {
-    return 'GET /login';
-});
-
-$router->get('/post/{id}', function ($id) {
-    return 'GET /post/' . $id;
-});
-
-/**
- * @desc Match the URI against the $_SERVER super-global
- */
-$method = strtoupper($_SERVER['REQUEST_METHOD']);
-$path = array_key_exists('PATH_INFO', $_SERVER) ? $_SERVER['PATH_INFO'] : '/';
-$result = $router->dispatch($method, $path);
-
-if ($result === false) {
-    http_response_code(404);
-    exit;
+switch ($result[0]) {
+    case Tez\MatcherInterface::RESULT_FOUND:
+        if (is_callable($result[1])) {
+            /** @desc Call the route handler and process request */
+            call_user_func_array($result[1], count($result) == 3 ? $result[2] : array());
+        } else {
+            throw new InvalidArgumentException('Route handler must be a valid callable');
+        }
+        break;
+    case Tez\MatcherInterface::RESULT_NOT_ALLOWED:
+        http_response_code(405);
+        echo 'Method Not Allowed';
+        break;
+    case Tez\MatcherInterface::RESULT_NOT_FOUND:
+        http_response_code(404);
+        echo 'Not Found';
+        break;
 }
-
-/**
- * @desc Print the handler return value to user-agent
- */
-list ($handler, $args) = $result;
-echo call_user_func_array($handler, $args);
 ```
 
 License

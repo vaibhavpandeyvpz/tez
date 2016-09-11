@@ -1,6 +1,5 @@
 vendor
 .idea
-composer.lock
-*~
 
-!.gitignore
+composer.lock
+.php_cs.cache

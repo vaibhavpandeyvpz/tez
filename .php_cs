@@ -1,3 +1,4 @@
+
 <?php
 
 $header = <<<EOF
@@ -19,14 +20,13 @@ HeaderCommentFixer::setHeader($header);
 return Config::create()
     ->finder(
         DefaultFinder::create()
-            ->exclude('.gitignore')
-            ->in(array(
-                __DIR__ . '/src',
-                __DIR__ . '/tests'
-            ))
+            ->exclude('vendor')
+            ->in(__DIR__)
+            ->name('*.php')
     )
     ->fixers(array(
         'header_comment',
         'long_array_syntax'
     ))
-    ->level(FixerInterface::PSR2_LEVEL);
+    ->level(FixerInterface::PSR2_LEVEL)
+    ->setUsingCache(true);

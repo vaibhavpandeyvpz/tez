@@ -15,7 +15,7 @@ namespace Tez;
  * Class Router
  * @package Tez
  */
-class Router
+class Router implements RouterInterface
 {
     /**
      * @var string[]
@@ -23,125 +23,110 @@ class Router
     protected $groups = array();
 
     /**
-     * @var Route[]
+     * @var PathCompilerInterface
+     */
+    protected $pathCompiler;
+
+    /**
+     * @var array
      */
     protected $routes = array();
 
     /**
-     * @param string $method
-     * @param string $path
-     * @return array|bool
+     * Router constructor.
+     * @param PathCompilerInterface $pathCompiler
      */
-    public function dispatch($method, $path)
+    public function __construct(PathCompilerInterface $pathCompiler = null)
     {
-        foreach ($this->routes as $route) {
-            $methods = $route->getMethods();
-            if (empty($methods) || in_array($method, $methods)) {
-                $regex = $route->getRegex();
-                if (preg_match("~^{$regex}$~", $path, $matches)) {
-                    $args = array_intersect_key($matches, array_flip($route->getParams()));
-                    return array($route->getHandler(), $args);
-                }
-            }
-        }
-        return false;
+        $this->pathCompiler = $pathCompiler ?: new PathCompiler();
     }
 
     /**
-     * @param string $namespace
-     * @param \Closure $closure
+     * @return array
      */
-    public function group($namespace, \Closure $closure)
+    public function &getRoutes()
     {
-        array_push($this->groups, trim($namespace, '/'));
-        $closure($this);
+        return $this->routes;
+    }
+
+    // <editor-fold desc="Routing">
+
+    /**
+     * {@inheritdoc}
+     */
+    public function group($prefix, $group)
+    {
+        array_push($this->groups, trim($prefix, '/'));
+        call_user_func($group, $this);
         array_pop($this->groups);
     }
 
     /**
-     * @param string|array $method
-     * @param string $path
-     * @param mixed $handler
-     * @return Route
+     * {@inheritdoc}
      */
-    public function map($method, $path, $handler)
+    public function map($methods, $path, $handler)
     {
         if (count($this->groups)) {
             $path = sprintf('/%s/%s', implode('/', $this->groups), ltrim($path, '/'));
         }
-        return $this->routes[] = new Route($method, $path, $handler);
+        $route = array(
+            'handler' => $handler,
+            'methods' => (array)$methods,
+        );
+        $route += $this->pathCompiler->compile($path);
+        $this->routes[] = $route;
     }
+
+    // </editor-fold>
 
     // <editor-fold desc="Aliases">
 
     /**
-     * @param string $pattern
-     * @param mixed $handler
-     * @return Route
+     * {@inheritdoc}
      */
-    public function any($pattern, $handler)
+    public function get($path, $handler)
     {
-        return $this->map(null, $pattern, $handler);
+        $this->map('GET', $path, $handler);
     }
 
     /**
-     * @param string $pattern
-     * @param mixed $handler
-     * @return Route
+     * {@inheritdoc}
      */
-    public function delete($pattern, $handler)
+    public function head($path, $handler)
     {
-        return $this->map('DELETE', $pattern, $handler);
+        $this->map('HEAD', $path, $handler);
     }
 
     /**
-     * @param string $pattern
-     * @param mixed $handler
-     * @return Route
+     * {@inheritdoc}
      */
-    public function get($pattern, $handler)
+    public function options($path, $handler)
     {
-        return $this->map('GET', $pattern, $handler);
+        $this->map('OPTIONS', $path, $handler);
     }
 
     /**
-     * @param string $pattern
-     * @param mixed $handler
-     * @return Route
+     * {@inheritdoc}
      */
-    public function head($pattern, $handler)
+    public function patch($path, $handler)
     {
-        return $this->map('HEAD', $pattern, $handler);
+        $this->map('PATCH', $path, $handler);
     }
 
     /**
-     * @param string $pattern
-     * @param mixed $handler
-     * @return Route
+     * {@inheritdoc}
      */
-    public function patch($pattern, $handler)
+    public function post($path, $handler)
     {
-        return $this->map('PATCH', $pattern, $handler);
+        $this->map('POST', $path, $handler);
     }
 
     /**
-     * @param string $pattern
-     * @param mixed $handler
-     * @return Route
+     * {@inheritdoc}
      */
-    public function post($pattern, $handler)
+    public function put($path, $handler)
     {
-        return $this->map('POST', $pattern, $handler);
-    }
-
-    /**
-     * @param string $pattern
-     * @param mixed $handler
-     * @return Route
-     */
-    public function put($pattern, $handler)
-    {
-        return $this->map('PUT', $pattern, $handler);
+        $this->map('PUT', $path, $handler);
     }
 
     // </editor-fold>
