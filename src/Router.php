@@ -18,19 +18,15 @@ namespace Tez;
 class Router implements RouterInterface
 {
     const MATCH_FOUND = 0;
-
-    const MATCH_NOT_ALLOWED = 1;
-
-    const MATCH_NOT_FOUND = -1;
-
-    const REGEXP_SLUG = '[^/]+';
-
-    const REGEXP_VAR = '#{
+    const MATCH_NOT_ALLOWED = -1;
+    const MATCH_NOT_FOUND = -2;
+    const REGEXP_CAPTURE = '#{
         ([^:}]+)
         (?::
             ([^}]+)
         )?
     }#x';
+    const REGEXP_SLUG = '[^/]+';
 
     /**
      * @var array
@@ -44,6 +40,11 @@ class Router implements RouterInterface
     ];
 
     /**
+     * @var array|bool
+     */
+    protected $compiled = false;
+
+    /**
      * @var array
      */
     protected $groups = [];
@@ -51,39 +52,52 @@ class Router implements RouterInterface
     /**
      * @var array
      */
-    protected $routes;
+    protected $routes = [];
 
     /**
      * Router constructor.
-     * @param array $routes
+     * @param array|null $precompiled
      */
-    public function __construct(array $routes = [])
+    public function __construct(array $precompiled = null)
     {
-        $this->routes = $routes;
+        $this->compiled = $precompiled !== null ? $precompiled : false;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function compile($path)
+    public function compile()
     {
-        $variables = [];
-        $regexp = preg_replace_callback(
-            self::REGEXP_VAR,
-            function (array $match) use (&$variables) {
-                $variables[] = $variable = $match[1];
-                if (empty($match[2])) {
-                    $regexp = self::REGEXP_SLUG;
-                } elseif (isset(self::$assertions[$match[2]])) {
-                    $regexp = self::$assertions[$match[2]];
-                } else {
-                    throw new \RuntimeException("Variable assertion '{$match[2]}' is invalid.");
-                }
-                return "(?P<{$variable}>{$regexp})";
-            },
-            $path
-        );
-        return empty($variables) ? false : ["#^$regexp$#", $variables];
+        if ($this->compiled !== false) {
+            return $this->compiled;
+        }
+        $compiled = [];
+        foreach ($this->routes as $route) {
+            if (strpos($route[0], '{') === false) {
+                $compiled[] = $route;
+                continue;
+            }
+            $captures = [];
+            $regexp = preg_replace_callback(
+                self::REGEXP_CAPTURE,
+                function (array $match) use (&$captures) {
+                    $captures[] = $capture = $match[1];
+                    if (empty($match[2])) {
+                        $regexp = self::REGEXP_SLUG;
+                    } elseif (isset(static::$assertions[$match[2]])) {
+                        $regexp = static::$assertions[$match[2]];
+                    } else {
+                        throw new \RuntimeException("Capture assertion '{$match[2]}' is invalid.");
+                    }
+                    return "(?P<{$capture}>{$regexp})";
+                },
+                $route[0]
+            );
+            $route[3] = "#^$regexp$#";
+            $route[4] = $captures;
+            $compiled[] = $route;
+        }
+        return $this->compiled = $compiled;
     }
 
     /**
@@ -103,26 +117,23 @@ class Router implements RouterInterface
     /**
      * {@inheritdoc}
      */
-    public function match($path, $method = null)
+    public function match($path, $method)
     {
         $allowed = [];
-        foreach ($this->routes as &$route) {
-            if (empty($route['compiled'])) {
-                $route['compiled'] = $this->compile($route[0]);
-            }
-            if (false === $route['compiled']) {
+        foreach ($this->compile() as $route) {
+            if (empty($route[3])) {
                 if ($route[0] === $path) {
-                    if (empty($method) || empty($route['methods']) || in_array($method, $route['methods'])) {
-                        return [self::MATCH_FOUND, $route];
+                    if (empty($method) || empty($route[1]) || in_array($method, $route[1])) {
+                        return [self::MATCH_FOUND, $route[2]];
                     }
-                    $allowed = array_merge($allowed, $route['methods']);
+                    $allowed = array_merge($allowed, $route[1]);
                 }
-            } elseif (preg_match($route['compiled'][0], $path, $matches)) {
-                if (empty($method) || empty($route['methods']) || in_array($method, $route['methods'])) {
-                    $variables = array_intersect_key($matches, array_flip($route['compiled'][1]));
-                    return [self::MATCH_FOUND, $route, $variables];
+            } elseif (preg_match($route[3], $path, $matches)) {
+                if (empty($method) || empty($route[1]) || in_array($method, $route[1])) {
+                    $captures = array_intersect_key($matches, array_flip($route[4]));
+                    return [self::MATCH_FOUND, $route[2], $captures];
                 }
-                $allowed = array_merge($allowed, $route['methods']);
+                $allowed = array_merge($allowed, $route[1]);
             }
         }
         return count($allowed) ? [self::MATCH_NOT_ALLOWED, array_unique($allowed)] : [self::MATCH_NOT_FOUND];
@@ -131,62 +142,12 @@ class Router implements RouterInterface
     /**
      * {@inheritdoc}
      */
-    public function route($path, $target, array $options = null)
+    public function route($path, $target, $methods = null)
     {
-        if ($this->groups) {
+        if (count($this->groups)) {
             $path = implode('', $this->groups) . $path;
         }
-        $route = [$path, $target];
-        if ($options) {
-            $route = array_merge($route, $options);
-        }
-        if (empty($route['name'])) {
-            $this->routes[] = $route;
-        } else {
-            $this->routes[$route['name']] = $route;
-        }
+        $this->routes[] = [$path, (array)$methods, $target];
         return $this;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function routes()
-    {
-        return $this->routes;
-    }
-
-    /**
-     * {@inheritdoc}
-     */
-    public function url($for, array $variables = null)
-    {
-        if (isset($this->routes[$for])) {
-            $route = $this->routes[$for];
-            if (empty($route['compiled']) || (false !== $route['compiled'])) {
-                $path = preg_replace_callback(
-                    self::REGEXP_VAR,
-                    function (array $matches) use ($for, &$variables) {
-                        $variable = $matches[1];
-                        if (empty($variables) || empty($variables[$variable])) {
-                            throw new \RuntimeException(
-                                "Route '$for' requires a value for '$variable' variable, none provided."
-                            );
-                        }
-                        $value = $variables[$variable];
-                        unset($variables[$variable]);
-                        return $value;
-                    },
-                    $route[0]
-                );
-            } else {
-                $path = $route[0];
-            }
-            if ($variables) {
-                $path .= ('?' . http_build_query($variables));
-            }
-            return $path;
-        }
-        throw new \InvalidArgumentException("No route found named '$for'.");
     }
 }

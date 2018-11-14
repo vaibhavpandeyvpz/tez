@@ -11,213 +11,270 @@
 namespace Tez;
 
 /**
- * Class RouteTest
+ * Class RouterTest
  * @author Vaibhav Pandey <contact@vaibhavpandey.com>
  * @package Tez
  */
 class RouterTest extends \PHPUnit_Framework_TestCase
 {
-    public function testCompile()
+    public function testEmptyRoutes()
     {
         $router = new Router();
+        $result = $router->match('/', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
+    }
 
-        $result = $router->compile('/');
-        $this->assertFalse($result);
-
-        $result = $router->compile('/hello');
-        $this->assertFalse($result);
-
-        $result = $router->compile('/hello/{name}');
-        $this->assertNotFalse($result);
+    public function testFoundAnyMethod()
+    {
+        $router = new Router();
+        $router->route('/', 'Home.Index');
+        $result = $router->match('/', 'GET');
         $this->assertInternalType('array', $result);
         $this->assertCount(2, $result);
-        $this->assertInternalType('string', $result[0]);
-        $this->assertInternalType('array', $result[1]);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Home.Index', $result[1]);
+    }
 
-        $result = $router->compile('/hello/{name:a}');
-        $this->assertNotFalse($result);
+    public function testFoundMultipleMethods()
+    {
+        $router = new Router();
+        $router->route('/', 'Home.Index', ['GET', 'POST']);
+        $result = $router->match('/', 'GET');
         $this->assertInternalType('array', $result);
         $this->assertCount(2, $result);
-        $this->assertInternalType('string', $result[0]);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Home.Index', $result[1]);
+        $result = $router->match('/', 'POST');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Home.Index', $result[1]);
+        $result = $router->match('/', 'PUT');
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_NOT_ALLOWED, $result[0]);
         $this->assertInternalType('array', $result[1]);
+        $this->assertCount(2, $result[1]);
+        $this->assertContains('GET', $result[1]);
+        $this->assertContains('POST', $result[1]);
+    }
 
-        $this->setExpectedException('RuntimeException');
-        $router->compile('/hello/{name:hex}');
+    public function testFoundSpecificMethod()
+    {
+        $router = new Router();
+        $router->route('/', 'Home.Index', 'GET');
+        $result = $router->match('/', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Home.Index', $result[1]);
+        $result = $router->match('/', 'POST');
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_NOT_ALLOWED, $result[0]);
+        $this->assertInternalType('array', $result[1]);
+        $this->assertCount(1, $result[1]);
+        $this->assertContains('GET', $result[1]);
+    }
+
+    public function testNotAllowed()
+    {
+        $router = new Router();
+        $router->route('/contact-us', 'ContactUs.Submit', 'POST');
+        $result = $router->match('/contact-us', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_NOT_ALLOWED, $result[0]);
+        $this->assertInternalType('array', $result[1]);
+        $this->assertCount(1, $result[1]);
+        $this->assertContains('POST', $result[1]);
+    }
+
+    public function testNotFound()
+    {
+        $router = new Router();
+        $router->route('/', 'Home.Index');
+        $result = $router->match('/home', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
     }
 
     public function testGroup()
     {
         $router = new Router();
-        $router->group('/user', function (Router $router) {
-            $router->route('', 'User.Index', ['name' => 'user']);
-            $router->route('/transactions', 'User.Transactions', ['name' => 'user_transactions']);
-            $router->route('/transactions/{id:i}', 'User.Transactions', ['name' => 'user_transactions_one']);
+        $router->route('/', 'Home.Index');
+        $router->group('/admin', function (Router $router) {
+            $router->route('', 'Admin.Dashboard.Index');
+            $router->route('/login', 'Admin.Login.Index', 'GET');
+            $router->route('/login', 'Admin.Login.Submit', 'POST');
         });
-        $this->assertEquals('/user', $router->url('user'));
-        $this->assertEquals('/user/transactions', $router->url('user_transactions'));
-        $this->assertEquals('/user/transactions/13', $router->url('user_transactions_one', ['id' => 13]));
+        $router->group('/api', function () use ($router) {
+            $router->route('/users', 'Api.Users.Index', 'GET');
+            $router->route('/users', 'Api.Users.Create', 'POST');
+        });
+        $result = $router->match('/', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Home.Index', $result[1]);
+        $result = $router->match('/admin', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Admin.Dashboard.Index', $result[1]);
+        $result = $router->match('/admin/login', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Admin.Login.Index', $result[1]);
+        $result = $router->match('/admin/login', 'POST');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Admin.Login.Submit', $result[1]);
+        $result = $router->match('/api/users', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Api.Users.Index', $result[1]);
+        $result = $router->match('/api/users', 'POST');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(2, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Api.Users.Create', $result[1]);
     }
 
-    public function testMatch()
+    public function testCaptures()
     {
         $router = new Router();
-        $router->route('/', 'Default.Index');
-        $router->route('/contact-us', 'Default.ContactUs', ['methods' => ['GET', 'POST']]);
-
-        $match = $router->match('/');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(2, $match);
-        $this->assertInternalType('int', $match[0]);
-        $this->assertEquals(Router::MATCH_FOUND, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertEquals('Default.Index', $match[1][1]);
-
-        $match = $router->match('/contact-us', 'POST');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(2, $match);
-        $this->assertInternalType('int', $match[0]);
-        $this->assertEquals(Router::MATCH_FOUND, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertEquals('Default.ContactUs', $match[1][1]);
-
-        $match = $router->match('/about-us');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(1, $match);
-        $this->assertEquals(Router::MATCH_NOT_FOUND, $match[0]);
-
-        $match = $router->match('/contact-us', 'PUT');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(2, $match);
-        $this->assertEquals(Router::MATCH_NOT_ALLOWED, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertCount(2, $match[1]);
-        $this->assertContains('GET', $match[1]);
-        $this->assertContains('POST', $match[1]);
+        $router->route('/users/{id}', 'Users.Show');
+        $result = $router->match('/users/13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Users.Show', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('id', $result[2]);
+        $this->assertEquals('13', $result[2]['id']);
     }
 
-    public function testMatchEverything()
+    public function testCapturesAssertAlpha()
     {
         $router = new Router();
-        $router->route('/p/{slug:*}', 'Page.View');
-        $match = $router->match('/p/i-love/my-girlfriend');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(3, $match);
-        $this->assertEquals(Router::MATCH_FOUND, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertEquals('Page.View', $match[1][1]);
-        $this->assertInternalType('array', $match[2]);
-        $this->assertInternalType('array', $match[2]);
-        $this->assertArrayHasKey('slug', $match[2]);
-        $this->assertEquals('i-love/my-girlfriend', $match[2]['slug']);
+        $router->route('/users/{username:a}', 'Users.Show');
+        $result = $router->match('/users/13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
+        $result = $router->match('/users/vpz', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Users.Show', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('username', $result[2]);
+        $this->assertEquals('vpz', $result[2]['username']);
     }
 
-    public function testMatchAlpha()
+    public function testCapturesAssertAlphaNumeric()
     {
         $router = new Router();
-        $router->route('/user/{name:a}', 'User.View');
-        $match = $router->match('/user/13');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(1, $match);
-        $this->assertEquals(Router::MATCH_NOT_FOUND, $match[0]);
-        $match = $router->match('/user/tez');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(3, $match);
-        $this->assertEquals(Router::MATCH_FOUND, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertEquals('User.View', $match[1][1]);
-        $this->assertInternalType('array', $match[2]);
-        $this->assertArrayHasKey('name', $match[2]);
-        $this->assertEquals('tez', $match[2]['name']);
+        $router->route('/users/{username:ai}', 'Users.Show');
+        $result = $router->match('/users/vpz.13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
+        $result = $router->match('/users/vpz13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Users.Show', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('username', $result[2]);
+        $this->assertEquals('vpz13', $result[2]['username']);
     }
 
-    public function testMatchAlphaNumeric()
+    public function testCapturesAssertHex()
     {
         $router = new Router();
-        $router->route('/user/{user:ai}', 'User.View');
-        $match = $router->match('/user/tez13');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(3, $match);
-        $this->assertEquals(Router::MATCH_FOUND, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertEquals('User.View', $match[1][1]);
-        $this->assertInternalType('array', $match[2]);
-        $this->assertArrayHasKey('user', $match[2]);
-        $this->assertEquals('tez13', $match[2]['user']);
+        $router->route('/colors/{code:h}', 'Colors.Detail');
+        $result = $router->match('/colors/13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
+        $result = $router->match('/colors/00aeef', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Colors.Detail', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('code', $result[2]);
+        $this->assertEquals('00aeef', $result[2]['code']);
     }
 
-    public function testMatchHex()
+    public function testCapturesAssertEverything()
     {
         $router = new Router();
-        $router->route('/color/{code:h}', 'Color.Change');
-        $match = $router->match('/color/white');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(1, $match);
-        $this->assertEquals(Router::MATCH_NOT_FOUND, $match[0]);
-        $match = $router->match('/color/00ad45');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(3, $match);
-        $this->assertEquals(Router::MATCH_FOUND, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertEquals('Color.Change', $match[1][1]);
-        $this->assertInternalType('array', $match[2]);
-        $this->assertArrayHasKey('code', $match[2]);
-        $this->assertEquals('00ad45', $match[2]['code']);
+        $router->route('/p/{product:*}', 'Products.Index');
+        $result = $router->match('/p/apple-iphone-xs/gold/256-gb', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Products.Index', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('product', $result[2]);
+        $this->assertEquals('apple-iphone-xs/gold/256-gb', $result[2]['product']);
     }
 
-    public function testMatchNumeric()
+    public function testCapturesAssertNumeric()
     {
         $router = new Router();
-        $router->route('/user/{id:i}', 'User.View');
-        $match = $router->match('/user/tez');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(1, $match);
-        $this->assertEquals(Router::MATCH_NOT_FOUND, $match[0]);
-        $match = $router->match('/user/13');
-        $this->assertInternalType('array', $match);
-        $this->assertCount(3, $match);
-        $this->assertEquals(Router::MATCH_FOUND, $match[0]);
-        $this->assertInternalType('array', $match[1]);
-        $this->assertEquals('User.View', $match[1][1]);
-        $this->assertInternalType('array', $match[2]);
-        $this->assertArrayHasKey('id', $match[2]);
-        $this->assertEquals('13', $match[2]['id']);
+        $router->route('/users/{id:i}', 'Users.Show');
+        $result = $router->match('/users/vpz', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
+        $result = $router->match('/users/13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Users.Show', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('id', $result[2]);
+        $this->assertEquals('13', $result[2]['id']);
     }
 
-    public function testRoutes()
+    public function testCapturesAssertInvalid()
     {
         $router = new Router();
-        $router->route('/', 'Default.Index');
-        $router->route('/about-us', 'Default.AboutUs');
-        $router->route('/contact-us', 'Default.ContactUs');
-        $routes = $router->routes();
-        $this->assertInternalType('array', $routes);
-        $this->assertCount(3, $routes);
-    }
-
-    public function testUrl()
-    {
-        $router = new Router();
-        $router->route('/', 'Default.Index', ['name' => 'index']);
-        $router->route('/hello/{name}', 'Default.Hello', ['name' => 'hello']);
-        $router->route('/user/{id:i}', 'Default.Hello', ['name' => 'user']);
-        $this->assertEquals('/', $router->url('index'));
-        $this->assertEquals('/hello/tez', $router->url('hello', ['name' => 'tez']));
-        $this->assertEquals('/user/13', $router->url('user', ['id' => 13]));
-        $this->assertEquals('/hello/tez?id=13', $router->url('hello', ['name' => 'tez', 'id' => 13]));
-    }
-
-    public function testUrlInvalidRoute()
-    {
-        $router = new Router();
-        $this->setExpectedException('InvalidArgumentException');
-        $router->url('invalid');
-    }
-
-    public function testUrlMissingVariable()
-    {
-        $router = new Router();
-        $router->route('/user/{id:i}', 'Default.Hello', ['name' => 'user']);
+        $router->route('/users/{id:z}', 'Users.Show');
         $this->setExpectedException('RuntimeException');
-        $router->url('user');
+        $router->match('/users/13', 'GET');
+    }
+
+    public function testPrecompiled()
+    {
+        $router = new Router([
+            [
+                '/users/{id}',
+                ['GET'],
+                'Users.Show',
+                '#^/users/(?P<id>\d+)$#',
+                ['id']
+            ]
+        ]);
+        $result = $router->match('/users/vpz', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
+        $result = $router->match('/users/13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Users.Show', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('id', $result[2]);
+        $this->assertEquals('13', $result[2]['id']);
     }
 }

@@ -19,7 +19,7 @@
     "sort-packages": true
   },
   "description": "Fast and simple enough, framework agnostic, RegExp based HTTP router for micro-services and REST APIs.",
-  "homepage": "http://vaibhavpandeyvpz.github.io/tez",
+  "homepage": "http://vaibhavpandey.com/tez/",
   "keywords": ["http", "rest", "router"],
   "license": "MIT",
   "name": "vaibhavpandeyvpz/tez",
