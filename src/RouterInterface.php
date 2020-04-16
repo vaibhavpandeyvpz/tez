@@ -34,8 +34,8 @@ interface RouterInterface
     /**
      * @param string $path
      * @param mixed $target
-     * @param array|null $options
+     * @param array|null $methods
      * @return static
      */
-    public function route($path, $target, $options = null);
+    public function route($path, $target, $methods = null);
 }
