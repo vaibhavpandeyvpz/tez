@@ -64,7 +64,7 @@ class Router implements RouterInterface
     }
 
     /**
-     * {@inheritdoc}
+     * @return array
      */
     public function compile()
     {
@@ -98,6 +98,16 @@ class Router implements RouterInterface
             $compiled[] = $route;
         }
         return $this->compiled = $compiled;
+    }
+
+    /**
+     * @param string $into
+     */
+    public function dump($into)
+    {
+        $routes = $this->compile();
+        $routes = var_export($routes, true);
+        file_put_contents($into, "<?php\n\nreturn " . $routes . ";\n");
     }
 
     /**

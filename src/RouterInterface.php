@@ -18,11 +18,6 @@ namespace Tez;
 interface RouterInterface
 {
     /**
-     * @return array
-     */
-    public function compile();
-
-    /**
      * @param string $prefix
      * @param callable $callback
      * @return static

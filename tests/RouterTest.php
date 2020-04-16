@@ -257,7 +257,7 @@ class RouterTest extends \PHPUnit_Framework_TestCase
     {
         $router = new Router([
             [
-                '/users/{id}',
+                '/users/{id:i}',
                 ['GET'],
                 'Users.Show',
                 '#^/users/(?P<id>\d+)$#',
@@ -269,6 +269,28 @@ class RouterTest extends \PHPUnit_Framework_TestCase
         $this->assertCount(1, $result);
         $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
         $result = $router->match('/users/13', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(3, $result);
+        $this->assertEquals(Router::MATCH_FOUND, $result[0]);
+        $this->assertEquals('Users.Show', $result[1]);
+        $this->assertInternalType('array', $result[2]);
+        $this->assertArrayHasKey('id', $result[2]);
+        $this->assertEquals('13', $result[2]['id']);
+    }
+
+    public function testDump()
+    {
+        $router1 = new Router();
+        $router1->route('/users/{id:i}', 'Users.Show');
+        $temp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('tez');
+        $router1->dump($temp);
+        /** @noinspection PhpIncludeInspection */
+        $router2 = new Router(require $temp);
+        $result = $router2->match('/users/vpz', 'GET');
+        $this->assertInternalType('array', $result);
+        $this->assertCount(1, $result);
+        $this->assertEquals(Router::MATCH_NOT_FOUND, $result[0]);
+        $result = $router2->match('/users/13', 'GET');
         $this->assertInternalType('array', $result);
         $this->assertCount(3, $result);
         $this->assertEquals(Router::MATCH_FOUND, $result[0]);
