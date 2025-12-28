@@ -11,27 +11,53 @@
 namespace Tez;
 
 /**
- * Class Router
+ * Fast and simple RegExp-based HTTP router.
+ *
+ * This router supports:
+ * - Simple string route matching
+ * - Parameter capture with regex patterns
+ * - Route grouping with prefixes
+ * - HTTP method restrictions
+ * - Route compilation and caching
+ * - Precompiled route loading
+ *
  * @author Vaibhav Pandey <contact@vaibhavpandey.com>
- * @package Tez
  */
-class Router implements RouterInterface
+final class Router implements RouterInterface
 {
-    const MATCH_FOUND = 0;
-    const MATCH_NOT_ALLOWED = -1;
-    const MATCH_NOT_FOUND = -2;
-    const REGEXP_CAPTURE = '#{
+    /**
+     * Regular expression pattern for matching route parameter placeholders.
+     *
+     * Matches patterns like {id} or {id:i} where:
+     * - First capture group: parameter name
+     * - Second capture group (optional): assertion type (a, ai, h, i, *)
+     */
+    private const REGEXP_CAPTURE = '#{
         ([^:}]+)
         (?::
             ([^}]+)
         )?
     }#x';
-    const REGEXP_SLUG = '[^/]+';
 
     /**
-     * @var array
+     * Default regex pattern for route parameters without assertions.
+     * Matches any non-slash characters.
      */
-    protected static $assertions = [
+    private const REGEXP_SLUG = '[^/]+';
+
+    /**
+     * Route parameter assertion patterns.
+     *
+     * Maps assertion types to their regex patterns:
+     * - 'a': Alphabetic characters only
+     * - 'ai': Alphanumeric characters
+     * - 'h': 6-character hexadecimal string
+     * - 'i': Integer (digits only)
+     * - '*': Any non-whitespace characters (greedy match)
+     *
+     * @var array<string, string>
+     */
+    private const ASSERTIONS = [
         'a' => '[a-zA-Z]+',
         'ai' => '[a-zA-Z0-9]+',
         'h' => '[a-fA-Z0-9]{6}',
@@ -40,55 +66,83 @@ class Router implements RouterInterface
     ];
 
     /**
-     * @var array|bool
+     * Compiled route cache.
+     *
+     * When false, routes need to be compiled.
+     * When array, contains compiled routes with regex patterns and capture groups.
+     *
+     * Route structure: [path, methods, target, regex?, captures?]
+     *
+     * @var array<int, array{0: string, 1: array<string>|null, 2: mixed, 3?: string, 4?: array<string>}>|false
      */
-    protected $compiled = false;
+    private array|false $compiled = false;
 
     /**
-     * @var array
+     * Active route group prefixes.
+     *
+     * Used to build nested route paths when adding routes within groups.
+     *
+     * @var array<string>
      */
-    protected $groups = [];
+    private array $groups = [];
 
     /**
-     * @var array
+     * Registered routes before compilation.
+     *
+     * Route structure: [path, methods, target]
+     * - path: Route path pattern
+     * - methods: Allowed HTTP methods (null = any method)
+     * - target: Route target (handler, controller, etc.)
+     *
+     * @var array<int, array{0: string, 1: array<string>|null, 2: mixed}>
      */
-    protected $routes = [];
+    private array $routes = [];
 
     /**
-     * Router constructor.
-     * @param array|null $precompiled
+     * Create a new Router instance.
+     *
+     * @param  array<int, array{0: string, 1: array<string>|null, 2: mixed, 3?: string, 4?: array<string>}>|null  $precompiled
+     *                                                                                                                          Precompiled routes to use instead of compiling from scratch.
+     *                                                                                                                          If provided, routes will not be recompiled.
      */
-    public function __construct(array $precompiled = null)
+    public function __construct(?array $precompiled = null)
     {
-        $this->compiled = $precompiled !== null ? $precompiled : false;
+        $this->compiled = $precompiled ?? false;
     }
 
     /**
-     * @return array
+     * Compile routes into regex patterns for matching.
+     *
+     * Converts route patterns with placeholders (e.g., {id:i}) into
+     * compiled regex patterns. Results are cached for performance.
+     *
+     * @return array<int, array{0: string, 1: array<string>|null, 2: mixed, 3?: string, 4?: array<string>}>
+     *                                                                                                      Compiled routes with regex patterns and capture groups.
+     *                                                                                                      Structure: [path, methods, target, regex?, captures?]
      */
-    public function compile()
+    public function compile(): array
     {
         if ($this->compiled !== false) {
             return $this->compiled;
         }
         $compiled = [];
         foreach ($this->routes as $route) {
-            if (strpos($route[0], '{') === false) {
+            if (! str_contains($route[0], '{')) {
                 $compiled[] = $route;
+
                 continue;
             }
             $captures = [];
             $regexp = preg_replace_callback(
                 self::REGEXP_CAPTURE,
-                function (array $match) use (&$captures) {
+                function (array $match) use (&$captures): string {
                     $captures[] = $capture = $match[1];
-                    if (empty($match[2])) {
-                        $regexp = self::REGEXP_SLUG;
-                    } elseif (isset(static::$assertions[$match[2]])) {
-                        $regexp = static::$assertions[$match[2]];
-                    } else {
-                        throw new \RuntimeException("Capture assertion '{$match[2]}' is invalid.");
-                    }
+                    $assertion = $match[2] ?? '';
+                    $regexp = match ($assertion) {
+                        '' => self::REGEXP_SLUG,
+                        default => self::ASSERTIONS[$assertion] ?? throw new \RuntimeException("Capture assertion '{$assertion}' is invalid."),
+                    };
+
                     return "(?P<{$capture}>{$regexp})";
                 },
                 $route[0]
@@ -97,67 +151,143 @@ class Router implements RouterInterface
             $route[4] = $captures;
             $compiled[] = $route;
         }
+
         return $this->compiled = $compiled;
     }
 
     /**
-     * @param string $into
+     * Dump compiled routes to a PHP file.
+     *
+     * Useful for caching compiled routes to disk for faster loading
+     * in production environments.
+     *
+     * @param  string  $into  File path where compiled routes will be written.
+     *                        The file will contain a PHP array that can be
+     *                        loaded via require() and passed to the constructor.
      */
-    public function dump($into)
+    public function dump(string $into): void
     {
-        $routes = $this->compile();
-        $routes = var_export($routes, true);
-        file_put_contents($into, "<?php\n\nreturn " . $routes . ";\n");
+        $routes = var_export($this->compile(), true);
+        file_put_contents($into, "<?php\n\nreturn {$routes};\n");
     }
 
     /**
-     * {@inheritdoc}
+     * Group routes with a common prefix.
+     *
+     * All routes defined within the callback will have the prefix
+     * automatically prepended to their paths. Groups can be nested.
+     *
+     * @param  string  $prefix  The prefix to apply to all routes in the group.
+     * @param  callable(RouterInterface): void  $callback  Callback function that receives
+     *                                                     the router instance to define routes.
+     * @return static Returns self for method chaining.
      */
-    public function group($prefix, callable $callback)
+    #[\Override]
+    public function group(string $prefix, callable $callback): static
     {
         $this->groups[] = $prefix;
-        if (($callback instanceof \Closure) && (0 <= version_compare(PHP_VERSION, '5.4.0'))) {
-            $callback = $callback->bindTo($this);
+        try {
+            if ($callback instanceof \Closure) {
+                $callback = $callback->bindTo($this);
+            }
+            $callback($this);
+        } finally {
+            array_pop($this->groups);
         }
-        call_user_func($callback, $this);
-        array_pop($this->groups);
+
         return $this;
     }
 
     /**
-     * {@inheritdoc}
+     * Match a path and HTTP method against registered routes.
+     *
+     * Returns an array with the match result:
+     * - [MatchResult::FOUND, target, captures?] - Route matched successfully
+     * - [MatchResult::NOT_ALLOWED, allowed_methods[]] - Path matched but method not allowed
+     * - [MatchResult::NOT_FOUND] - No route matched
+     *
+     * @param  string  $path  The request path to match (e.g., '/users/123').
+     * @param  string  $method  The HTTP method to match (e.g., 'GET', 'POST').
+     *                          Empty string matches any method.
+     * @return array{0: MatchResult, 1: mixed, 2?: array<string, string>}|array{0: MatchResult, 1: array<string>}
+     *                                                                                                            Match result array. When FOUND: [result, target, captures?].
+     *                                                                                                            When NOT_ALLOWED: [result, allowed_methods[]].
+     *                                                                                                            When NOT_FOUND: [result].
      */
-    public function match($path, $method)
+    #[\Override]
+    public function match(string $path, string $method): array
     {
         $allowed = [];
         foreach ($this->compile() as $route) {
-            if (empty($route[3])) {
+            $regexp = $route[3] ?? null;
+            if ($regexp === null) {
+                // Simple string match
                 if ($route[0] === $path) {
-                    if (empty($method) || empty($route[1]) || in_array($method, $route[1])) {
-                        return [self::MATCH_FOUND, $route[2]];
+                    $methods = $route[1];
+                    // null or empty array means accept any method
+                    if ($method === '' || $methods === null || $methods === [] || in_array($method, $methods, true)) {
+                        return [MatchResult::FOUND, $route[2]];
                     }
-                    $allowed = array_merge($allowed, $route[1]);
+                    if ($methods !== null && $methods !== []) {
+                        $allowed = [...$allowed, ...$methods];
+                    }
                 }
-            } elseif (preg_match($route[3], $path, $matches)) {
-                if (empty($method) || empty($route[1]) || in_array($method, $route[1])) {
-                    $captures = array_intersect_key($matches, array_flip($route[4]));
-                    return [self::MATCH_FOUND, $route[2], $captures];
+            } elseif (preg_match($regexp, $path, $matches) === 1) {
+                // Regex match
+                $methods = $route[1];
+                // null or empty array means accept any method
+                if ($method === '' || $methods === null || $methods === [] || in_array($method, $methods, true)) {
+                    $captures = array_intersect_key($matches, array_flip($route[4] ?? []));
+
+                    return [MatchResult::FOUND, $route[2], $captures];
                 }
-                $allowed = array_merge($allowed, $route[1]);
+                if ($methods !== null && $methods !== []) {
+                    $allowed = [...$allowed, ...$methods];
+                }
             }
         }
-        return count($allowed) ? [self::MATCH_NOT_ALLOWED, array_unique($allowed)] : [self::MATCH_NOT_FOUND];
+
+        return $allowed !== []
+            ? [MatchResult::NOT_ALLOWED, array_unique($allowed)]
+            : [MatchResult::NOT_FOUND];
     }
 
     /**
-     * {@inheritdoc}
+     * Register a new route.
+     *
+     * Route paths can contain placeholders like {id} or {id:i} for parameter capture.
+     * Available assertion types: 'a' (alpha), 'ai' (alphanumeric), 'h' (hex),
+     * 'i' (integer), '*' (any non-whitespace).
+     *
+     * @param  string  $path  Route path pattern (e.g., '/users/{id:i}').
+     *                        Empty string is normalized to '/'.
+     * @param  mixed  $target  Route target/handler (string, callable, object, etc.).
+     * @param  string|array<string>|null  $methods  Allowed HTTP methods.
+     *                                              Single string, array of strings, or null for any method.
+     *                                              Empty array is normalized to null.
+     * @return static Returns self for method chaining.
      */
-    public function route($path, $target, $methods = null)
+    #[\Override]
+    public function route(string $path, mixed $target, string|array|null $methods = null): static
     {
-        if (count($this->groups)) {
-            $path = implode('', $this->groups) . $path;
+        if ($this->groups !== []) {
+            $path = implode('', $this->groups).$path;
         }
-        $this->routes[] = [$path, (array)$methods, $target];
+        // Normalize empty path to root
+        if ($path === '') {
+            $path = '/';
+        }
+        // Normalize empty array to null (both mean "accept any method")
+        $normalizedMethods = $methods !== null ? (array) $methods : null;
+        if ($normalizedMethods === []) {
+            $normalizedMethods = null;
+        }
+        $this->routes[] = [$path, $normalizedMethods, $target];
+        // Reset compiled cache when new routes are added
+        if ($this->compiled !== false) {
+            $this->compiled = false;
+        }
+
         return $this;
     }
 }
